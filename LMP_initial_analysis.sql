@@ -427,6 +427,47 @@ order by 1;
 2020-11-12 21:34:45	749
 2020-12-02 11:21:32	542
 */
+
+-- in the given timeframe what % age of distinct devices didn't need a second reboot
+select distinct asset_id
+from sunnava.lmp_reboot_1001_1222
+where reboot_time in ('2020-11-11 17:39:32','2020-11-12 21:34:45')
+INTERSECT
+select distinct asset_id
+from sunnava.lmp_reboot_1001_1222
+where reboot_time in ('2020-12-02 11:21:32');
+--323 devices
+
+-- % repeat offenders
+select count(distinct asset_tag),count(distinct asset_tag||start_date)
+from (select *, case when reboots >1 and rn =1 and days_btw_reboot_new_case < 31 then 1
+			   when reboots = 1 and rn = 1 then 1
+			   else 0 end as flag -- creating a flag to ignore the rows with past date of the
+      from (select *, row_number() over (partition by asset_tag,reboot_date order by start_date) as rn
+            from(select a.asset_tag,start_date,close_date,reboot_date,reboot_flag ,days_btw_reboot_new_case ,b.reboots
+                 from sunnava.lmp_reboot_analysis_tb1 a
+                 left join (select asset_tag, count(distinct reboot_date)  as reboots
+		                        from sunnava.lmp_reboot_analysis_tb1 group by 1 )b on a.asset_tag=b.asset_tag
+--where a.asset_tag = 'AHP2UA8391DFN'--11355 --30114-- 13844
+                )
+            where days_btw_reboot_new_case > 0)
+--where rn = 1 and
+--days_btw_reboot_new_case > 30
+      )
+where flag = 1;
+--946 1244
+
+-------- QC ------
+select count(distinct asset_tag) from (
+select asset_tag,min(start_date),max(start_date),min(reboot_date),max(reboot_date),
+case when min(reboot_date) >= min(start_date) and min(reboot_date) <= max(start_date) then 1
+     when max(reboot_date) >= min(start_date) and max(reboot_date) <= max(start_date) then 1
+     else 0 end as flag
+from  sunnava.lmp_reboot_analysis_tb1
+group by asset_tag)
+where flag = 1;
+--946
+
 -----------------------------------   VIEW ------------------------------------
 create or replace view sunnava.lmp_analysis_v1 as (
 with wrtv_cases as (
