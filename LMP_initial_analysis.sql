@@ -363,7 +363,7 @@ from (select *, case when reboots >1 and rn =1 and days_btw_reboot_new_case < 31
 			   else 0 end as flag -- creating a flag to ignore the rows with past date of the
       from (select *, row_number() over (partition by asset_tag,reboot_date order by start_date) as rn
             from(select a.asset_tag,start_date,close_date,reboot_date,reboot_flag ,days_btw_reboot_new_case ,b.reboots
-                 from sunnava.lmp_reboot_analysis_tb1 a 
+                 from sunnava.lmp_reboot_analysis_tb1 a
                  left join (select asset_tag, count(distinct reboot_date)  as reboots
 		                        from sunnava.lmp_reboot_analysis_tb1 group by 1 )b on a.asset_tag=b.asset_tag
 --where a.asset_tag = 'AHP2UA8391DFN'--11355 --30114-- 13844
@@ -390,11 +390,13 @@ select asset_id from sunnava.lmp_reboot_1001_1222 where reboot_time like '2020-1
 select count(distinct asset_id)
 from sunnava.lmp_reboot_1001_1222;
 --1160
+
 select count(distinct ASSET_TAG) from(
 select ASSET_TAG from sunnava.lmp_analysis_tb1
 intersect
 select asset_id from sunnava.lmp_reboot_1001_1222 );
 -- 1080
+
 select reboot_time, count(distinct asset_id)
 from sunnava.lmp_reboot_1001_1222
 group by 1;
@@ -404,6 +406,15 @@ group by 1;
 2020-11-11 17:39:32	109
 	3
 */
+
+select reboot_date, count(distinct asset_tag)
+from sunnava.lmp_reboot_analysis_tb1
+where reboot_flag = 1
+group by 1
+order by 1;
+--2020-11-11	103
+--2020-11-12	702
+--2020-12-02	476
 
 select reboot_time, count(distinct asset_id)
 from sunnava.lmp_reboot_1001_1222
