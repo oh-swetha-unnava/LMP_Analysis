@@ -186,8 +186,14 @@ AMP	164
 
 ----- Cases Freq Distribution by software version
 
-select software_version, device_type,count(distinct asset_tag) as dev_cnt,count(*) as case_cnt
-from  sunnava.lmp_analysis_tb1
+select b.software_version, device_type,count(distinct asset_tag) as dev_cnt,count(*) as case_cnt
+from  sunnava.lmp_analysis_tb1 a
+left join ( select distinct asset_id,device_apk_version as software_version
+            from (select distinct asset_id,device_apk_version,
+                          row_number() over (partition by asset_id order by export_date desc) as rn
+                  from(select * from mdm.DEVICES_HISTORY
+                  where  (device_apk_version is not null and device_apk_version not like '%nil%' )))
+            where  rn = 1   ) b on a.asset_tag = b.asset_id
 group by 1,2
 order by 2,1  ;
 
@@ -204,8 +210,14 @@ order by 2,1 ;
 ----- can we further break down the table into the screen skus, device sku and software versions  for each row of LMP -
 ----- group by in the order that has less groupings
 
-select sku,software_version, count(distinct asset_tag)as dev_cnt ,count(*) as case_cnt
-from  sunnava.lmp_analysis_tb1
+select sku,b.software_version, count(distinct asset_tag)as dev_cnt ,count(*) as case_cnt
+from  sunnava.lmp_analysis_tb1 a
+left join ( select asset_id,device_apk_version as software_version
+            from (select distinct asset_id,device_apk_version,
+                          row_number() over (partition by asset_id order by export_date desc) as rn
+                  from mdm.DEVICES_HISTORY
+                  where  (device_apk_version is not null and device_apk_version not like '%nil%' )     )
+            where  rn = 1   ) b on a.asset_tag = b.asset_id
 where device_type = 'LMP'
 group by 1,2
 order by 1,2 ;
@@ -270,7 +282,12 @@ LEFT JOIN SALESFORCE.ACCOUNTS B ON A.CMH_ID = B.CMH_ID
 LEFT JOIN ASSET_STATUS_ENGINE.ASSET C ON UPPER(A.ASSET_TAG) = UPPER(C.FIELD_SERVICES_TAG)
 LEFT JOIN ASSET_STATUS_ENGINE.SKU D ON C.SKU_ID = D.ID
 LEFT JOIN ASSET_STATUS_ENGINE.SKU_TYPE E ON D.SKU_TYPE_ID = E.ID
-left join mdm.devices g on g.asset_id = a.ASSET_TAG
+left join ( select asset_id,device_apk_version
+                      from (select distinct asset_id,device_apk_version ,
+                                    row_number() over (partition by asset_id order by export_date desc) as rn
+                            from mdm.DEVICES_HISTORY
+                            where  (device_apk_version is not null and device_apk_version not like '%nil%' )     )
+                      where  rn = 1   )  g on g.asset_id = a.ASSET_TAG
 WHERE PRODUCT = 'Waiting Room Screen'
 AND A.STATUS = 'Installed'
 AND ranking IS NOT NULL
@@ -287,7 +304,12 @@ LEFT JOIN SALESFORCE.ACCOUNTS B ON A.CMH_ID = B.CMH_ID
 LEFT JOIN ASSET_STATUS_ENGINE.ASSET C ON UPPER(A.ASSET_TAG) = UPPER(C.FIELD_SERVICES_TAG)
 LEFT JOIN ASSET_STATUS_ENGINE.SKU D ON C.SKU_ID = D.ID
 LEFT JOIN ASSET_STATUS_ENGINE.SKU_TYPE E ON D.SKU_TYPE_ID = E.ID
-left join mdm.devices g on g.asset_id = a.ASSET_TAG
+left join ( select asset_id,device_apk_version
+                      from (select distinct asset_id,device_apk_version ,
+                                    row_number() over (partition by asset_id order by export_date desc) as rn
+                            from mdm.DEVICES_HISTORY
+                            where  (device_apk_version is not null and device_apk_version not like '%nil%' )     )
+                      where  rn = 1   )  g on g.asset_id = a.ASSET_TAG
 WHERE PRODUCT = 'Waiting Room Screen'
 AND A.STATUS = 'Installed'
 AND ranking IS NOT NULL
@@ -532,10 +554,9 @@ order by 1,2;
 
 select sku,tv_manufacture, device_age, software_version,
        count(distinct asset_tag) as device_cnt,count(distinct asset_tag||start_date) as case_cnt
-from (select distinct a.asset_tag,sku,start_date,installed_date,deployment_date,
-     -- DATEDIFF(day,case when installed_date is null or deployment_date<installed_date then deployment_date else installed_date end,cast('2020-12-30' as date))+1 as device_age,
-      DATEDIFF(year,case when installed_date is null or deployment_date<installed_date
-                    then deployment_date else installed_date end,cast('2020-12-30' as date)) as device_age
+from (select distinct a.asset_tag,sku,start_date,installed_date,deployment_date,tv_manufacture,e.software_version,device_type,
+      DATEDIFF(year,case when b.installed_date is null or deployment_date< b.installed_date
+                    then deployment_date else b.installed_date end,cast('2020-12-30' as date)) as device_age
       from  sunnava.lmp_analysis_tb1 A
       INNER JOIN SUNNAVA.LMP_TV_MANUFACTURE d ON A.SOURCE_SYSTEM_ID = d.broad_sign_id
       left JOIN (select asset_id, min(installed_date)  as installed_date
@@ -546,7 +567,13 @@ from (select distinct a.asset_tag,sku,start_date,installed_date,deployment_date,
       			from ams.assets_history
       			where deployment_date is not null
       			group by 1) c ON A.asset_tag = c.asset_tag
-          where device_type = 'LMP')
+      left join ( select asset_id,device_apk_version as software_version
+                      from (select distinct asset_id,device_apk_version,
+                                    row_number() over (partition by asset_id order by export_date desc) as rn
+                            from mdm.DEVICES_HISTORY
+                            where  (device_apk_version is not null and device_apk_version not like '%nil%' )     )
+                      where  rn = 1   ) e on a.asset_tag = e.asset_id
+)
 where device_type = 'LMP'
 group by 1,2,3,4
 order by 1,2,3,4  ;
@@ -573,7 +600,12 @@ left JOIN (select asset_tag, min(deployment_date)  as deployment_date
             where deployment_date is not null
             group by 1) g ON A.asset_tag = g.asset_tag
 left join SUNNAVA.LMP_TV_MANUFACTURE H on a.source_system_id = H.broad_sign_id
-left join mdm.devices I on I.asset_id = a.ASSET_TAG
+left join ( select asset_id,device_apk_version
+                from (select distinct asset_id,device_apk_version,
+                              row_number() over (partition by asset_id order by export_date desc) as rn
+                      from mdm.DEVICES_HISTORY
+                      where  (device_apk_version is not null and device_apk_version not like '%nil%' )     )
+                where  rn = 1   ) I on I.asset_id = a.ASSET_TAG
 WHERE PRODUCT = 'Waiting Room Screen'
 AND A.STATUS = 'Installed'
 AND ranking IS NOT NULL
