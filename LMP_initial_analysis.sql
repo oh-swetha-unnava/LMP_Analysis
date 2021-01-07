@@ -200,43 +200,7 @@ select sku, device_type,count(distinct asset_tag)as dev_cnt ,count(*) as case_cn
 from  sunnava.lmp_analysis_tb1
 group by 1,2
 order by 2,1 ;
-/*
-SELECT DISTINCT sku_code,name, COUNT(DISTINCT AMS_ID) AS TOTAL_WRS,
-COUNT(DISTINCT(CASE WHEN E.NAME = 'LINUX_MEDIA_PLAYER' THEN A.AMS_ID ELSE NULL END)) AS TOTAL_LMP,
-COUNT(DISTINCT(CASE WHEN E.NAME = 'ANDROID_MEDIA_PLAYER' THEN A.AMS_ID ELSE NULL END)) AS TOTAL_AMP
-FROM AMS.ASSETS_HISTORY A
-LEFT JOIN SALESFORCE.ACCOUNTS B ON A.CMH_ID = B.CMH_ID
-LEFT JOIN ASSET_STATUS_ENGINE.ASSET C ON UPPER(A.ASSET_TAG) = UPPER(C.FIELD_SERVICES_TAG)
-LEFT JOIN ASSET_STATUS_ENGINE.SKU D ON C.SKU_ID = D.ID
-LEFT JOIN ASSET_STATUS_ENGINE.SKU_TYPE E ON D.SKU_TYPE_ID = E.ID
-WHERE PRODUCT = 'Waiting Room Screen'
-AND A.STATUS = 'Installed'
-AND ranking IS NOT NULL
-and ((A.EXPORT_DATE -1)::DATE <= cast('2020-12-17' as date)
-and (A.EXPORT_DATE -1)::DATE <= cast('2020-10-08'as date))
-and UPPER(A.ASSET_TAG) in (select distinct asset_tag from sunnava.lmp_analysis_tb1 )
-group by 1,2
-order by 2,1;
 
-select sku_2, device_type,count(distinct asset_tag)as dev_cnt ,count(*) as case_cnt
-from ( select distinct a.*, nvl(sku_code,sku) as sku_2
-from  sunnava.lmp_analysis_tb1 a
-inner join
-(SELECT DISTINCT sku_code,ASSET_TAG
-FROM AMS.ASSETS_HISTORY A
-LEFT JOIN SALESFORCE.ACCOUNTS B ON A.CMH_ID = B.CMH_ID
-LEFT JOIN ASSET_STATUS_ENGINE.ASSET C ON UPPER(A.ASSET_TAG) = UPPER(C.FIELD_SERVICES_TAG)
-LEFT JOIN ASSET_STATUS_ENGINE.SKU D ON C.SKU_ID = D.ID
-LEFT JOIN ASSET_STATUS_ENGINE.SKU_TYPE E ON D.SKU_TYPE_ID = E.ID
-WHERE PRODUCT = 'Waiting Room Screen'
-AND A.STATUS = 'Installed'
-AND ranking IS NOT NULL
-and ((A.EXPORT_DATE -1)::DATE <= cast('2020-12-17' as date)
-and (A.EXPORT_DATE -1)::DATE <= cast('2020-10-08'as date))
-and UPPER(A.ASSET_TAG) in (select distinct asset_tag from sunnava.lmp_analysis_tb1 ) ) b on a.asset_tag = b.asset_tag)
-group by 1,2
-order by 2,1 desc ;
-*/
 ----- can we further break down the table into the screen skus, device sku and software versions  for each row of LMP -
 ----- group by in the order that has less groupings
 
@@ -561,6 +525,106 @@ and ((A.EXPORT_DATE -1)::DATE <= cast('2020-12-30' as date)--cast('2020-12-17' a
 and (A.EXPORT_DATE -1)::DATE <= cast('2020-10-08'as date)))
 group by 1,2
 order by 1,2;
+
+
+
+------Group by skus > tv manufacturer > age > software version
+
+select sku,tv_manufacture, device_age, software_version,
+       count(distinct asset_tag) as device_cnt,count(distinct asset_tag||start_date) as case_cnt
+from (select distinct a.asset_tag,sku,start_date,installed_date,deployment_date,
+     -- DATEDIFF(day,case when installed_date is null or deployment_date<installed_date then deployment_date else installed_date end,cast('2020-12-30' as date))+1 as device_age,
+      DATEDIFF(year,case when installed_date is null or deployment_date<installed_date
+                    then deployment_date else installed_date end,cast('2020-12-30' as date)) as device_age
+      from  sunnava.lmp_analysis_tb1 A
+      INNER JOIN SUNNAVA.LMP_TV_MANUFACTURE d ON A.SOURCE_SYSTEM_ID = d.broad_sign_id
+      left JOIN (select asset_id, min(installed_date)  as installed_date
+      			from mdm.devices_history
+      			where installed_date is not null
+      			group by 1) B ON A.asset_tag = B.asset_id
+      left JOIN (select asset_tag, min(deployment_date)  as deployment_date
+      			from ams.assets_history
+      			where deployment_date is not null
+      			group by 1) c ON A.asset_tag = c.asset_tag
+          where device_type = 'LMP')
+where device_type = 'LMP'
+group by 1,2,3,4
+order by 1,2,3,4  ;
+
+----------------------  TOTALS -------------
+
+SELECT DISTINCT sku_code,tv_manufacture,device_age,device_apk_version, COUNT(DISTINCT AMS_ID) AS TOTAL_WRS,
+COUNT(DISTINCT(CASE WHEN NAME = 'LINUX_MEDIA_PLAYER' THEN AMS_ID ELSE NULL END)) AS TOTAL_LMP,
+COUNT(DISTINCT(CASE WHEN NAME = 'ANDROID_MEDIA_PLAYER' THEN AMS_ID ELSE NULL END)) AS TOTAL_AMP
+from( select sku_code, ams_id, e.NAME,tv_manufacture,device_apk_version,
+  DATEDIFF(year,case when F.installed_date is null or g.deployment_date<F.installed_date
+                then g.deployment_date else F.installed_date end,cast('2020-12-30' as date)) as device_age
+FROM AMS.ASSETS_HISTORY A
+LEFT JOIN SALESFORCE.ACCOUNTS B ON A.CMH_ID = B.CMH_ID
+LEFT JOIN ASSET_STATUS_ENGINE.ASSET C ON UPPER(A.ASSET_TAG) = UPPER(C.FIELD_SERVICES_TAG)
+LEFT JOIN ASSET_STATUS_ENGINE.SKU D ON C.SKU_ID = D.ID
+LEFT JOIN ASSET_STATUS_ENGINE.SKU_TYPE E ON D.SKU_TYPE_ID = E.ID
+left join (select asset_id, min(installed_date)  as installed_date
+      from mdm.devices_history
+      where installed_date is not null
+      group by 1) f ON A.asset_tag = f.asset_id
+left JOIN (select asset_tag, min(deployment_date)  as deployment_date
+            from ams.assets_history
+            where deployment_date is not null
+            group by 1) g ON A.asset_tag = g.asset_tag
+left join SUNNAVA.LMP_TV_MANUFACTURE H on a.source_system_id = H.broad_sign_id
+left join mdm.devices I on I.asset_id = a.ASSET_TAG
+WHERE PRODUCT = 'Waiting Room Screen'
+AND A.STATUS = 'Installed'
+AND ranking IS NOT NULL
+and ((A.EXPORT_DATE -1)::DATE <= cast('2020-12-30' as date)--cast('2020-12-17' as date)
+and (A.EXPORT_DATE -1)::DATE <= cast('2020-10-08'as date)))
+group by 1,2,3,4
+order by 1,2,3,4;
+
+
+
+
+---------------------------------Rough ----------------------------------------
+
+/*
+SELECT DISTINCT sku_code,name, COUNT(DISTINCT AMS_ID) AS TOTAL_WRS,
+COUNT(DISTINCT(CASE WHEN E.NAME = 'LINUX_MEDIA_PLAYER' THEN A.AMS_ID ELSE NULL END)) AS TOTAL_LMP,
+COUNT(DISTINCT(CASE WHEN E.NAME = 'ANDROID_MEDIA_PLAYER' THEN A.AMS_ID ELSE NULL END)) AS TOTAL_AMP
+FROM AMS.ASSETS_HISTORY A
+LEFT JOIN SALESFORCE.ACCOUNTS B ON A.CMH_ID = B.CMH_ID
+LEFT JOIN ASSET_STATUS_ENGINE.ASSET C ON UPPER(A.ASSET_TAG) = UPPER(C.FIELD_SERVICES_TAG)
+LEFT JOIN ASSET_STATUS_ENGINE.SKU D ON C.SKU_ID = D.ID
+LEFT JOIN ASSET_STATUS_ENGINE.SKU_TYPE E ON D.SKU_TYPE_ID = E.ID
+WHERE PRODUCT = 'Waiting Room Screen'
+AND A.STATUS = 'Installed'
+AND ranking IS NOT NULL
+and ((A.EXPORT_DATE -1)::DATE <= cast('2020-12-17' as date)
+and (A.EXPORT_DATE -1)::DATE <= cast('2020-10-08'as date))
+and UPPER(A.ASSET_TAG) in (select distinct asset_tag from sunnava.lmp_analysis_tb1 )
+group by 1,2
+order by 2,1;
+
+select sku_2, device_type,count(distinct asset_tag)as dev_cnt ,count(*) as case_cnt
+from ( select distinct a.*, nvl(sku_code,sku) as sku_2
+from  sunnava.lmp_analysis_tb1 a
+inner join
+(SELECT DISTINCT sku_code,ASSET_TAG
+FROM AMS.ASSETS_HISTORY A
+LEFT JOIN SALESFORCE.ACCOUNTS B ON A.CMH_ID = B.CMH_ID
+LEFT JOIN ASSET_STATUS_ENGINE.ASSET C ON UPPER(A.ASSET_TAG) = UPPER(C.FIELD_SERVICES_TAG)
+LEFT JOIN ASSET_STATUS_ENGINE.SKU D ON C.SKU_ID = D.ID
+LEFT JOIN ASSET_STATUS_ENGINE.SKU_TYPE E ON D.SKU_TYPE_ID = E.ID
+WHERE PRODUCT = 'Waiting Room Screen'
+AND A.STATUS = 'Installed'
+AND ranking IS NOT NULL
+and ((A.EXPORT_DATE -1)::DATE <= cast('2020-12-17' as date)
+and (A.EXPORT_DATE -1)::DATE <= cast('2020-10-08'as date))
+and UPPER(A.ASSET_TAG) in (select distinct asset_tag from sunnava.lmp_analysis_tb1 ) ) b on a.asset_tag = b.asset_tag)
+group by 1,2
+order by 2,1 desc ;
+*/
+
 -----------------------------------   VIEW ------------------------------------
 create or replace view sunnava.lmp_analysis_v1 as (
 with wrtv_cases as (
